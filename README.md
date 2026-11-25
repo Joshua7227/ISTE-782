@@ -141,15 +141,3 @@ vast-site/
 - Add an MC2 "baseline vs. anomaly" detector that scores every agent-day automatically.
 - Add a short "how to read this chart" note to each chart for the final video.
 
----
-
-## 7. Put it online (free) — Streamlit Community Cloud
-
-1. Create a GitHub repo and upload this whole folder (including `data/`; it's under 4 MB).
-   Don't upload a `.venv` folder (the `.gitignore` already skips it).
-2. Go to https://share.streamlit.io, sign in with GitHub, click **Create app**.
-3. Pick the repo, branch `main`, main file `app.py`, then **Deploy**.
-4. You get a public link to put in the final video and send to the professor.
-   Every push to GitHub updates the site automatically.
-
-The data is the public, synthetic VAST data, so a public repo is fine.
