@@ -1,32 +1,26 @@
-"""
-When AI Agents Go Wrong — ISTE-782 VAST Challenge 2026 project website.
-
-Run it with:   streamlit run app.py
-
-This file only sets up the page list. Each page lives in views/,
-and all the data loading/analysis lives in vastlib/.
-"""
 import streamlit as st
 
 st.set_page_config(page_title="When AI Agents Go Wrong", page_icon="🔎", layout="wide")
 
 pages = {
-    "Overview": [
-        st.Page("views/home.py", title="Home", icon=":material/home:", default=True),
-        st.Page("views/data_overview.py", title="The data", icon=":material/table_chart:"),
+    "Start here": [
+        st.Page("views/story.py", title="The story", icon=":material/auto_stories:", default=True),
     ],
-    "RQ1 · What happened": [
-        st.Page("views/mc1_leak.py", title="MC1 · Embargo leak", icon=":material/campaign:"),
-        st.Page("views/mc2_post.py", title="MC2 · Anomalous post", icon=":material/forum:"),
-        st.Page("views/mc2_meaning.py", title="MC2 · What the posts mean", icon=":material/description:"),
+    "Explore · What happened": [
+        st.Page("views/mc1_leak.py", title="The merger leak", icon=":material/campaign:"),
+        st.Page("views/mc2_post.py", title="The 4:21 AM post", icon=":material/forum:"),
+        st.Page("views/mc2_meaning.py", title="What the posts mean", icon=":material/description:"),
     ],
-    "RQ2 · What came before": [
-        st.Page("views/baselines.py", title="Baselines & warning signs", icon=":material/monitoring:"),
-        st.Page("views/mc1_language.py", title="MC1 · Stance & sentiment", icon=":material/psychology:"),
+    "Explore · What came before": [
+        st.Page("views/baselines.py", title="Warning signs", icon=":material/monitoring:"),
+        st.Page("views/mc1_language.py", title="What the agents were thinking", icon=":material/psychology:"),
     ],
-    "Conclusions": [
+    "Explore · How to stop it": [
         st.Page("views/what_if.py", title="What-if simulator", icon=":material/science:"),
-        st.Page("views/compare.py", title="Comparing the failures", icon=":material/compare_arrows:"),
+        st.Page("views/compare.py", title="Both failures compared", icon=":material/compare_arrows:"),
+    ],
+    "About": [
+        st.Page("views/data_overview.py", title="The data", icon=":material/table_chart:"),
     ],
 }
 

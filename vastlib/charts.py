@@ -1,13 +1,10 @@
-"""
-Shared colors and Plotly chart builders, so every page looks the same.
-"""
 import math
 
 import networkx as nx
 import plotly.graph_objects as go
 
-ACCENT = "#b0303c"   # red: the anomaly / the leak
-TEAL = "#1f7a6f"     # the origin / normal
+ACCENT = "#b0303c"
+TEAL = "#1f7a6f"
 GREY = "#9a96a0"
 INK = "#1c1a20"
 
@@ -24,7 +21,6 @@ INCIDENT_COLORS = {"HiddenOrca": "#6b5b7a", "MellowOtter": "#c9a227", "SwiftWren
 
 
 def style(fig, height=420, legend=True):
-    """Common look for every figure."""
     fig.update_layout(
         height=height,
         margin=dict(l=10, r=10, t=40, b=10),
@@ -33,6 +29,7 @@ def style(fig, height=420, legend=True):
         font=dict(family="Source Sans Pro, Arial, sans-serif", size=13),
         showlegend=legend,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        hoverlabel=dict(bgcolor="white", font_size=13),
     )
     fig.update_xaxes(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(128,128,128,0.15)")
@@ -40,7 +37,6 @@ def style(fig, height=420, legend=True):
 
 
 def vline(fig, x, text, color=ACCENT, y=1.0, xanchor="left"):
-    """A labelled vertical line (works with datetime x values). Use y < 1 to stagger labels."""
     fig.add_shape(type="line", x0=x, x1=x, y0=0, y1=1, yref="paper",
                   line=dict(color=color, dash="dash", width=1.5))
     fig.add_annotation(x=x, y=y, yref="paper", text=text, showarrow=False, bgcolor="rgba(251,249,245,0.85)",
@@ -49,10 +45,10 @@ def vline(fig, x, text, color=ACCENT, y=1.0, xanchor="left"):
 
 
 def incident_lines(fig, summary, as_date_string=False):
-    """One dashed line per day that had an anomalous MC2 post, labelled with the incident names."""
-    for day, g in summary.groupby(summary["posted_at"].dt.date):
+    for i, (day, g) in enumerate(summary.groupby(summary["posted_at"].dt.date)):
         x = str(day) if as_date_string else g["posted_at"].min()
-        vline(fig, x, f"{day:%b %d}: " + ", ".join(g["incident"]), color=TEAL)
+        vline(fig, x, f"{day:%b %d}: " + ", ".join(g["incident"]), color=TEAL, y=1.0 + 0.035 * i)
+    fig.update_layout(margin=dict(t=70))
     return fig
 
 
@@ -60,17 +56,12 @@ ROUND_FORMAT = "%b %d %H:%M"
 
 
 def round_labels(rounds):
-    """Turn round timestamps into labels, plus the labels in true time order (for category_orders)."""
     order = [t.strftime(ROUND_FORMAT) for t in sorted(rounds.unique())]
     return rounds.dt.strftime(ROUND_FORMAT), order
 
 
 def network_figure(edges, weight_col=None, highlight_nodes=(), highlight_edges=(),
                    origin=None, layout="spring", pos=None, height=520):
-    """
-    Draw a directed network with Plotly.
-    edges: DataFrame with 'from' and 'to' (and optional weight column).
-    """
     G = nx.DiGraph()
     for _, r in edges.iterrows():
         w = r[weight_col] if weight_col else 1
@@ -112,6 +103,6 @@ def network_figure(edges, weight_col=None, highlight_nodes=(), highlight_edges=(
                     line=dict(width=1, color="white")),
         hovertext=[f"{n}<br>sent: {G.out_degree(n, weight='w')}<br>received: {G.in_degree(n, weight='w')}" for n in nodes],
         hoverinfo="text"))
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False)
+    fig.update_xaxes(visible=False, range=[min(p[0] for p in pos.values()) - 0.3, max(p[0] for p in pos.values()) + 0.3])
+    fig.update_yaxes(visible=False, range=[min(p[1] for p in pos.values()) - 0.25, max(p[1] for p in pos.values()) + 0.3])
     return style(fig, height, legend=False)

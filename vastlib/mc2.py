@@ -1,10 +1,3 @@
-"""
-MC2 analysis: incidents, hand-off chains, the virus loop, and the what-if replay.
-
-An "incident" = a SaidIt post that published a FILE (content_source)
-instead of normal text. Each file came with a <name>_further_instructions.md
-that agents passed to each other with queue_subordinate_task.
-"""
 import networkx as nx
 import pandas as pd
 import streamlit as st
@@ -14,7 +7,6 @@ from vastlib.load import load_mc2
 
 @st.cache_data
 def incidents():
-    """One row per anomalous file post."""
     ev = load_mc2()
     posts = ev[ev["content_source"].notna()].copy()
     posts["incident"] = posts["content_source"].str.replace(".txt", "", regex=False)
@@ -23,17 +15,15 @@ def incidents():
 
 @st.cache_data
 def incident_events(name):
-    """Every event whose details mention this incident's file name."""
     ev = load_mc2()
     return ev[ev["details_text"].str.contains(name, regex=False)].copy()
 
 
 @st.cache_data
 def handoffs(name):
-    """Agent -> agent hand-offs of the instruction file, in time order."""
     ev = incident_events(name)
     h = ev[(ev["action"] == "queue_subordinate_task") & ev["target"].notna()]
-    h = h[h["actor"] != h["target"]]  # drop agents handing to themselves
+    h = h[h["actor"] != h["target"]]
     return h[["time", "actor", "target"]].rename(columns={"actor": "from", "target": "to"}).reset_index(drop=True)
 
 
@@ -62,7 +52,6 @@ def incident_summary():
 
 
 def origin_of(name):
-    """Who started the chain: the file's creator, else the first sender."""
     s = incident_summary().set_index("incident").loc[name]
     if pd.notna(s["created_by"]):
         return s["created_by"]
@@ -71,7 +60,6 @@ def origin_of(name):
 
 @st.cache_data
 def first_reach(name):
-    """The hand-off that reached each agent FIRST (turns the hairball into a tree)."""
     h = handoffs(name)
     origin = origin_of(name)
     first = h.drop_duplicates("to")
@@ -79,7 +67,6 @@ def first_reach(name):
 
 
 def path_to_poster(name):
-    """The exact chain: origin -> ... -> poster, following first-reach hand-offs."""
     first = first_reach(name)
     T = nx.DiGraph()
     T.add_edges_from(zip(first["from"], first["to"]))
@@ -91,11 +78,6 @@ def path_to_poster(name):
 
 
 def trigger_chain(name, max_steps=8):
-    """
-    Walk BACKWARDS from the post: the hand-off that reached the poster just before
-    the post, then the hand-off that reached that sender just before, and so on.
-    The instructions circulated for days, so we stop after `max_steps` hand-offs.
-    """
     h = handoffs(name)
     s = incident_summary().set_index("incident").loc[name]
     origin = origin_of(name)
@@ -112,15 +94,7 @@ def trigger_chain(name, max_steps=8):
 
 @st.cache_data
 def chain_steps(name):
-    """
-    A readable step-by-step table with three phases:
-      1. origin       - the file is created and first handed on
-      2. first arrival - the fastest route that first got the instructions to the poster
-      3. trigger      - the last hand-offs that set off the post, then the post and the clean-up
-    """
     ev = incident_events(name)
-    s = incident_summary().set_index("incident").loc[name]
-    poster, posted_at = s["posted_by"], s["posted_at"]
     path = path_to_poster(name)
     first = first_reach(name)
     rows = []
@@ -137,7 +111,7 @@ def chain_steps(name):
     first_arrival_time = first_path["time"].max() if len(first_path) else None
     for _, r in trig.iterrows():
         if first_arrival_time is not None and r["time"] <= first_arrival_time:
-            continue  # already shown as part of the first arrival
+            continue
         rows.append({"time": r["time"], "who": r["from"], "phase": "trigger",
                      "step": f"hands the instructions to {r['to']}"})
 
@@ -150,7 +124,6 @@ def chain_steps(name):
 
 
 def poster_receipts(name):
-    """Every time the poster's agent was handed the instructions, and what it did next."""
     h = handoffs(name)
     s = incident_summary().set_index("incident").loc[name]
     got = h[h["to"] == s["posted_by"]].copy()
@@ -158,16 +131,8 @@ def poster_receipts(name):
     return got.reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# What do the posts mean? Where did the content come from?
-# ---------------------------------------------------------------------------
-
 @st.cache_data
 def content_origin():
-    """
-    For each incident: the document the creator read one second before making the file,
-    how often that document is read in the whole log, and how the post was triggered.
-    """
     ev = load_mc2()
     rows = []
     for _, s in incident_summary().iterrows():
@@ -177,7 +142,7 @@ def content_origin():
         source_doc, doc_reads, size = None, None, None
         if len(created):
             c = created.iloc[0]
-            size = c["details"].get("size_hint") if isinstance(c["details"], dict) else None
+            size = c["size_hint"] if pd.notna(c["size_hint"]) else None
             before = ev[(ev["actor"] == c["actor"]) & (ev["action"] == "read_file")
                         & (ev["time"] < c["time"]) & (ev["time"] >= c["time"] - pd.Timedelta(seconds=5))]
             if len(before):
@@ -189,7 +154,7 @@ def content_origin():
             "created by": s["created_by"] if pd.notna(s["created_by"]) else "(before the log starts)",
             "read 1 s before creating": source_doc or "—",
             "times that document is read in the whole log": doc_reads if doc_reads is not None else "—",
-            "file size hint": size if size else "—",
+            "file size hint": f"{int(size):,}" if size else "—",
             "times the poster received it": len(receipts),
             "seconds from last hand-off to post": int(receipts["seconds_before_post"].min()),
             "files deleted within 3 s": int((inc[inc["action"] == "delete_file"]["time"] - s["posted_at"]
@@ -200,7 +165,6 @@ def content_origin():
 
 @st.cache_data
 def saidit_posters():
-    """Normal SaidIt posting per person, and whether any incident chain reached them."""
     ev = load_mc2()
     normal = ev[(ev["action"] == "post_saidit") & ev["content_source"].isna() & ev["actor"].notna()]
     counts = normal.groupby("actor").size().rename("normal SaidIt posts").reset_index()
@@ -212,13 +176,8 @@ def saidit_posters():
     return counts.sort_values("normal SaidIt posts", ascending=False).reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# The virus loop (May 10-12)
-# ---------------------------------------------------------------------------
-
 @st.cache_data
 def virus_spread():
-    """Who passed the looping 'virus' task to whom (excluding self-loops)."""
     ev = load_mc2()
     v = ev[ev["virus"] & (ev["action"] == "queue_subordinate_task") & ev["target"].notna()]
     v = v[v["actor"] != v["target"]]
@@ -234,29 +193,25 @@ def virus_by_agent():
              .sort_values("start").reset_index())
 
 
-# ---------------------------------------------------------------------------
-# What-if: replay the hand-offs with some agents or links blocked
-# ---------------------------------------------------------------------------
-
-def replay(name, blocked_agents=(), blocked_links=()):
-    """
-    Re-run the spread in time order. An agent can only pass the instructions
-    on if it has received them. Blocked agents can't send or receive; blocked
-    links (from, to) are cut. Returns the set of agents that were reached.
-    """
-    blocked_agents = set(blocked_agents)
-    blocked_links = set(blocked_links)
+@st.cache_data
+def reach_times(name, blocked_agents=()):
+    blocked = set(blocked_agents)
     origin = origin_of(name)
-    reached = set() if origin in blocked_agents else {origin}
-    for f, t in zip(handoffs(name)["from"], handoffs(name)["to"]):
-        if f in reached and t not in blocked_agents and (f, t) not in blocked_links:
-            reached.add(t)
-    return reached
+    start = incident_events(name)["time"].min()
+    reached = {} if origin in blocked else {origin: (start, None)}
+    for t, f, to in zip(handoffs(name)["time"], handoffs(name)["from"], handoffs(name)["to"]):
+        if f in reached and to not in blocked and to not in reached:
+            reached[to] = (t, f)
+    rows = [{"agent": a, "time": t, "from": f} for a, (t, f) in reached.items()]
+    return pd.DataFrame(rows, columns=["agent", "time", "from"]).sort_values("time").reset_index(drop=True)
+
+
+def replay(name, blocked_agents=()):
+    return set(reach_times(name, tuple(sorted(blocked_agents)))["agent"])
 
 
 @st.cache_data
 def single_block_table():
-    """For every agent: if we blocked only them, how far would each incident spread?"""
     summ = incident_summary()
     names = summ["incident"].tolist()
     agents = sorted(set().union(*[set(handoffs(n)["from"]) | set(handoffs(n)["to"]) for n in names]))
@@ -277,7 +232,6 @@ def single_block_table():
 
 @st.cache_data
 def best_pairs(exclude=()):
-    """Try every PAIR of agents to block (except `exclude`): how many posts stop, and total reach."""
     summ = incident_summary().set_index("incident")
     names = summ.index.tolist()
     agents = sorted(set().union(*[set(handoffs(n)["from"]) | set(handoffs(n)["to"]) for n in names]) - set(exclude))

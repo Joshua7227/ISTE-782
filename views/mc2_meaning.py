@@ -1,67 +1,77 @@
-"""MC2 · What do the posts mean? Where did their content come from? (MC2 question 2)
-
-The log never contains the text of the posted files, so this page builds the case
-from the actions around them.
-"""
 import plotly.express as px
 import streamlit as st
 
-from vastlib import mc2
+from vastlib import mc2, ui
 from vastlib.charts import ACCENT, GREY, style
 from vastlib.load import load_mc2, load_org
 
-st.title("MC2 · What do the posts mean?")
-st.caption("The log never contains the text of the posted files. This page builds the case from the actions around them.")
-
-origin = mc2.content_origin()
+ui.inject_css()
+origin = mc2.content_origin().set_index("incident")
 org = load_org().set_index("person")
-
-st.markdown("##### The evidence, incident by incident")
-st.dataframe(origin.set_index("incident").T.astype(str))
-
-left, right = st.columns(2)
-with left:
-    with st.container(border=True):
-        st.markdown("**1 · The content came from executive documents**")
-        st.write("One second before creating each file, the creator's agent read an internal document: "
-                 "the **CFO's** agent read `meeting_notes.doc` before creating SwiftWren.txt, and the **COO's** agent "
-                 "read `strategic_directions.doc` before creating MellowOtter.txt. Each document is read **only once** "
-                 "in the entire 185,000-event log.")
-    with st.container(border=True):
-        st.markdown("**2 · It was scripted, not human**")
-        st.write("Both files were made with the same machine-like rhythm, a day apart: read the document at 08:02:00, "
-                 "create the file at :01, read the instructions at :02, hand them on at :03. Each post came exactly "
-                 "**2 seconds** after a hand-off, and both files were **deleted within 2 seconds** of posting.")
-with right:
-    with st.container(border=True):
-        st.markdown("**3 · The instructions travelled until they found a SaidIt poster**")
-        posters = mc2.saidit_posters()
-        reached = set().union(*[set(mc2.handoffs(n)["from"]) | set(mc2.handoffs(n)["to"]) for n in origin["incident"]])
-        hit = posters.loc[posters["reached by an incident chain"], "actor"].tolist()
-        st.write(f"Only {len(posters)} people post on SaidIt in normal work. The chains reached {len(reached)} different "
-                 f"agents, but **{', '.join(hit)} {'is the only regular SaidIt poster' if len(hit) == 1 else 'are the only regular SaidIt posters'} "
-                 f"any chain reached**, and every anomalous post came from there.")
-    with st.container(border=True):
-        st.markdown("**Our reading of the meaning**")
-        st.write("The posts most likely publish the contents of confidential executive documents to a public forum. "
-                 "They look like gibberish probably because the text was transformed or encoded on the way, which "
-                 "is a data-exfiltration channel that hides in plain sight. *This is our inference: the log shows the "
-                 "documents and the timing, not the text itself.*")
-
-st.markdown("##### Who normally posts on SaidIt")
-posters["label"] = posters["reached by an incident chain"].map({True: "reached by an incident chain", False: "not reached"})
-fig = px.bar(posters, x="normal SaidIt posts", y="actor", orientation="h", color="label",
-             color_discrete_map={"reached by an incident chain": ACCENT, "not reached": GREY})
-fig.update_yaxes(autorange="reversed", title="")
-st.plotly_chart(style(fig, 280))
-
-st.markdown("##### What a normal SaidIt post looks like")
 ev = load_mc2()
-normal = ev[(ev["action"] == "post_saidit") & ev["content_source"].isna()].copy()
-normal["content"] = normal["details"].apply(lambda d: d.get("content") if isinstance(d, dict) else None)
-normal["forum"] = normal["details"].apply(lambda d: d.get("forum") if isinstance(d, dict) else None)
-sample = normal.dropna(subset=["content"])
-st.dataframe(sample[["time", "actor", "forum", "content"]].head(12), hide_index=True)
-sizes = [str(x) for x in origin["file size hint"] if x != "—"]
-st.caption(f"Normal posts are short work-topic titles (e.g. “{sample['content'].iloc[0]}”). The anomalous posts instead "
-           f"published whole files (size hints {' and '.join(sizes)}).")
+posters = mc2.saidit_posters()
+reached = set().union(*[set(mc2.handoffs(n)["from"]) | set(mc2.handoffs(n)["to"]) for n in origin.index])
+hit = posters.loc[posters["reached by an incident chain"], "actor"].tolist()
+
+
+def name_of(p):
+    return org.loc[p, "name"] if p in org.index else p
+
+
+ui.page_header(
+    "Explore · Failure 2",
+    "What did the posts contain?",
+    "The log never records the text of the posted files. But the actions around them tell a clear story.")
+
+ui.cards([
+    (ui.ICONS["doc"], "It came from executive documents",
+     f"One second before creating each file, the creator's agent opened an internal document: the "
+     f"<b>CFO's</b> agent read <code>{origin.loc['SwiftWren', 'read 1 s before creating']}</code>, the "
+     f"<b>COO's</b> read <code>{origin.loc['MellowOtter', 'read 1 s before creating']}</code>. "
+     "Each is opened only once in the whole log."),
+    (ui.ICONS["repeat"], "It looks automated, not human",
+     "Both files were made to the same second-by-second rhythm, a day apart: open the document at 08:02:00, "
+     "create the file at :01, read the instructions at :02, pass them on at :03."),
+    (ui.ICONS["cut"], "It ended with the one regular poster",
+     f"Only {len(posters)} people post on SaidIt in normal work. The instructions reached {len(reached)} agents, "
+     f"and <b>{', '.join(name_of(h) for h in hit)}</b> was the only regular SaidIt poster among them."),
+    (ui.ICONS["gate"], "Then it covered its tracks",
+     "Every post came 2 seconds after a hand-off, and both files were deleted within 2 seconds of posting."),
+])
+
+ui.section("Our reading")
+ui.notice("the posts most likely publish the contents of confidential executive documents (meeting notes, "
+          "strategic directions) to a public forum, probably transformed or encoded on the way, which would explain "
+          "why they looked like gibberish. <i>This is our inference: the log shows the documents and the timing, "
+          "not the text itself.</i>")
+
+ui.section("A normal post vs. an anomalous one", "Same account, very different posts.")
+john = hit[0] if hit else "john_windward"
+normal = ev[(ev["actor"] == john) & (ev["action"] == "post_saidit") & ev["post_content"].notna()]
+ex = normal.iloc[0]
+inc = mc2.incident_summary().set_index("incident").loc["SwiftWren"]
+ui.row(
+    ui.social_post("SaidIt", name_of(john), f"{ex['forum']} forum", f"{ex['time']:%b %d · %I:%M %p}",
+                   ex["post_content"], pill="normal post", pill_kind="grey", color="#2f6690"),
+    ui.social_post("SaidIt", name_of(john), "posted by his AI agent", f"{inc['posted_at']:%b %d · %I:%M %p}",
+                   f"[the full contents of SwiftWren.txt; the log records its size as {origin.loc['SwiftWren', 'file size hint']}]",
+                   pill="deleted 2 seconds later", color=ui.RED),
+)
+
+ui.section("Who normally posts on SaidIt", "Red = reached by the incident instructions.")
+posters["name"] = posters["actor"].map(name_of)
+posters["label"] = posters["reached by an incident chain"].map({True: "reached by the instructions", False: "not reached"})
+fig = px.bar(posters, x="normal SaidIt posts", y="name", orientation="h", color="label",
+             color_discrete_map={"reached by the instructions": ACCENT, "not reached": GREY}, labels={"name": "", "label": ""})
+fig.update_yaxes(autorange="reversed")
+st.plotly_chart(style(fig, 280), key="posters")
+
+ui.section("What normal SaidIt posts look like")
+samples = ev[(ev["action"] == "post_saidit") & ev["post_content"].notna()].drop_duplicates("actor").head(3)
+ui.row(*[ui.social_post("SaidIt", name_of(r["actor"]), f"{r['forum']} forum", f"{r['time']:%b %d · %I:%M %p}",
+                        r["post_content"], pill="normal post", pill_kind="grey", color="#2f6690")
+         for _, r in samples.iterrows()])
+
+with st.expander("The evidence table"):
+    st.dataframe(origin.T.astype(str))
+    st.caption("“File size hint” is the size field the log records for each created file.")

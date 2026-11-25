@@ -1,12 +1,3 @@
-"""
-MC1 language analysis: sentiment, topics and stance.
-
-- Sentiment: VADER (vaderSentiment) on every message, and on the private
-  reasoning when there is one. Score from -1 (very negative) to +1 (very positive).
-- Topics: TF-IDF + NMF (scikit-learn) finds recurring themes in the 912 messages.
-- Stance: LLM-assisted labels for the 86 messages that have private reasoning,
-  stored in data/mc1_stance_labels.csv so anyone can review and edit them.
-"""
 import pandas as pd
 import streamlit as st
 from sklearn.decomposition import NMF
@@ -22,20 +13,18 @@ AWARENESS_ORDER = ["none", "suspects", "knows"]
 
 @st.cache_data(show_spinner="Scoring sentiment…")
 def sentiment():
-    """Messages with 'said' sentiment, and 'thought' sentiment where reasoning exists."""
     msgs, _, _ = load_mc1()
     vader = SentimentIntensityAnalyzer()
     df = msgs.copy()
     df["said"] = df["content"].apply(lambda t: vader.polarity_scores(t)["compound"])
     thinking = df[["reacting", "rationalizing", "deliberating"]].fillna("").agg(" ".join, axis=1).str.strip()
     df["thought"] = [vader.polarity_scores(t)["compound"] if t else None for t in thinking]
-    df["gap"] = df["said"] - df["thought"]  # positive = sounded more upbeat than it felt
+    df["gap"] = df["said"] - df["thought"]
     return df
 
 
 @st.cache_data
 def stance_labels():
-    """The LLM-assisted labels joined to their messages."""
     labels = pd.read_csv(DATA_DIR / "mc1_stance_labels.csv", dtype=str).fillna("")
     msgs = sentiment()
     df = labels.drop(columns=["time", "agent"]).merge(msgs, on="message_id", how="left")
@@ -46,7 +35,6 @@ def stance_labels():
 
 @st.cache_data(show_spinner="Finding topics…")
 def topics(n_topics=6, n_words=6):
-    """Returns (messages with a 'topic' column, table of topics and their top words)."""
     msgs, _, _ = load_mc1()
     text = msgs["content"].str.replace(r"@\w+", " ", regex=True)
     stop = list(ENGLISH_STOP_WORDS | {"ll", "ve", "re", "don", "just", "need", "want", "know", "going", "let"})

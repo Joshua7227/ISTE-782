@@ -1,20 +1,15 @@
-"""Comparing the two failures, and the safeguards we recommend.
-
-Brings the findings from every other page together. All numbers are computed from the data.
-"""
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from vastlib import mc1, mc2, nlp
+from vastlib import mc1, mc2, nlp, ui
 from vastlib.charts import ACCENT, GREY, TEAL, style
-from vastlib.load import EMBARGO_LIFT, load_mc1, load_mc2
+from vastlib.load import load_mc1, load_mc2, load_org
 
-st.title("Comparing the two failures")
-st.caption("Two very different systems, the same lesson: the agents had the access to publish, and nothing checked them at the last step.")
-
+ui.inject_css()
 msgs, rounds, _ = load_mc1()
 ev = load_mc2()
+org = load_org().set_index("person")
 leaks = mc1.public_leaks()
 summary = mc2.incident_summary().set_index("incident")
 sw = summary.loc["SwiftWren"]
@@ -23,104 +18,106 @@ labels = nlp.stance_labels()
 pairs = mc2.best_pairs(exclude=tuple(summary["posted_by"].unique()))
 best = pairs[pairs["posts stopped"] == pairs["posts stopped"].max()]
 
-# ---------------------------------------------------------------- side by side
-st.markdown("##### Side by side")
-rows = [
-    ("What went wrong", "Embargoed merger posted publicly before 6 PM",
-     "Internal files posted to a public forum at 4:21 AM"),
-    ("Who did it", f"{leaks['agent_label'].iloc[0]} and Social Manager agents (personal and anonymous accounts)",
-     "John Windward's personal agent"),
-    ("How many public posts", f"{len(leaks)} before the embargo lifted", f"{len(summary)} file posts"),
-    ("Chain behind it", "Agents talked each other into it: ‘bilateral, modifiable’ → ‘moot’ → ‘verbal consent’ → ‘GO’",
-     f"Instructions passed agent to agent: {int(sw['hand_offs'])} hand-offs reaching {int(sw['agents_reached'])} agents"),
-    ("Time from first signal to failure", f"{(leaks['time'].iloc[0] - msgs[msgs['mentions_merger']]['time'].min()).days} days "
-     "(first private mention of the merger name)", f"{sw['hours_to_post']:.0f} hours (SwiftWren file created)"),
-    ("Earlier warning signs", "May 29 ‘big things coming’ post tagging CivicLoom's CEO; the Intern repeating ‘CivicLoom’ on June 5",
-     "Two identical incidents a week earlier; a runaway ‘virus’ loop on May 10–12"),
-    ("Oversight in place", f"A compliance agent (the Judge), silent after {judge['time'].max():%I:%M %p}",
-     "None visible in the log"),
-    ("Covering tracks", "Anonymous accounts used for some posts", "Both files deleted within 2 seconds of posting"),
-    ("Instruction ignored", "CEO at 5:00 PM: “Hold the line. The announcement goes official at 6.”",
-     "— (no human instruction in the chain)"),
-]
-st.table(pd.DataFrame(rows, columns=["", "MC1 · Embargo leak", "MC2 · Anomalous post"]).set_index(""))
 
-# ---------------------------------------------------------------- warning signs on one axis
-st.markdown("##### Warning signs, counted back from each failure")
+def name_of(p):
+    return org.loc[p, "name"] if p in org.index else p
+
+
+ui.page_header(
+    "Explore · How to stop it",
+    "Both failures, side by side",
+    "Two very different situations, one shared lesson: the agents could publish on their own, and nothing "
+    "checked them at the last step.")
+
+ui.section("At a glance")
+rows = [
+    ("What went wrong", "A secret merger was posted publicly before 6 PM",
+     "Company files were posted to a public forum at 4:21 AM"),
+    ("Who posted", f"The {leaks['agent_label'].iloc[0]} and Social Manager agents, from personal and anonymous accounts",
+     f"{name_of(sw['posted_by'])}'s personal agent"),
+    ("How many posts", f"{len(leaks)} before the embargo lifted", f"{len(summary)} file posts"),
+    ("How it built up", "The Legal agent argued itself into it: ‘modifiable’ → ‘moot’ → ‘consent’ → ‘GO’",
+     f"Instructions passed from agent to agent: {int(sw['hand_offs'])} hand-offs, {int(sw['agents_reached'])} agents"),
+    ("First sign → failure", f"{(leaks['time'].iloc[0] - msgs[msgs['mentions_merger']]['time'].min()).days} days",
+     f"{sw['hours_to_post'] / 24:.0f} days"),
+    ("Earlier warnings", "A May 29 post hinting at ‘big things’ and tagging CivicLoom's CEO; the Intern repeating ‘CivicLoom’",
+     "Two identical incidents a week earlier; a runaway virus loop on May 10–12"),
+    ("Who was watching", f"A compliance agent (the Judge), silent after {judge['time'].max():%I:%M %p}",
+     "No monitoring visible in the log"),
+    ("Hiding it", "Anonymous accounts for some posts", "Files deleted within 2 seconds"),
+    ("Instruction ignored", "CEO at 5 PM: “Hold the line.”", "None; no human was in the loop"),
+]
+st.table(pd.DataFrame(rows, columns=["", "Failure 1 · the merger leak", "Failure 2 · the 4:21 AM post"]).set_index(""))
+
+ui.section("The warning signs, counted back from each failure",
+           "Read right to left: the further right, the earlier the sign appeared.")
 mc1_fail, mc2_fail = leaks["time"].iloc[0], sw["posted_at"]
 vb = mc2.virus_by_agent()
 signs = [
-    ("MC1", msgs[msgs["mentions_merger"]]["time"].min(), "first private mention of the merger name"),
-    ("MC1", pd.Timestamp("2046-05-29 09:00"), "‘big things coming’ post tags CivicLoom's CEO"),
-    ("MC1", labels[labels["note"].str.contains("kitchen")]["time"].min(), "Intern repeats ‘CivicLoom’"),
-    ("MC1", judge["time"].max(), "Judge's last message"),
-    ("MC1", labels[labels["stance"] == "disclose the deal"]["time"].min(), "first private argument to disclose"),
-    ("MC1", mc1_fail, "FAILURE: first public merger post"),
-    ("MC2", summary.loc["HiddenOrca", "first_seen"], "HiddenOrca instructions start circulating"),
-    ("MC2", summary.loc["HiddenOrca", "posted_at"], "HiddenOrca posted"),
-    ("MC2", vb["start"].min(), "virus loop starts"),
-    ("MC2", summary.loc["MellowOtter", "posted_at"], "MellowOtter posted"),
-    ("MC2", vb["end"].max(), "virus loop ends"),
-    ("MC2", mc2_fail, "FAILURE: SwiftWren posted"),
+    ("Merger leak", msgs[msgs["mentions_merger"]]["time"].min(), "merger first named in a private chat"),
+    ("Merger leak", pd.Timestamp("2046-05-29 09:00"), "‘big things coming’ post tags CivicLoom's CEO"),
+    ("Merger leak", labels[labels["note"].str.contains("kitchen")]["time"].min(), "Intern repeats ‘CivicLoom’"),
+    ("Merger leak", judge["time"].max(), "the Judge's last message"),
+    ("Merger leak", labels[labels["stance"] == "disclose the deal"]["time"].min(), "first private push to announce"),
+    ("Merger leak", mc1_fail, "FAILURE: first public merger post"),
+    ("4:21 AM post", summary.loc["HiddenOrca", "first_seen"], "HiddenOrca instructions start moving"),
+    ("4:21 AM post", summary.loc["HiddenOrca", "posted_at"], "HiddenOrca posted"),
+    ("4:21 AM post", vb["start"].min(), "virus loop starts"),
+    ("4:21 AM post", summary.loc["MellowOtter", "posted_at"], "MellowOtter posted"),
+    ("4:21 AM post", vb["end"].max(), "virus loop ends"),
+    ("4:21 AM post", mc2_fail, "FAILURE: SwiftWren posted"),
 ]
 s = pd.DataFrame(signs, columns=["case", "time", "sign"]).dropna()
-s["days before failure"] = [((mc1_fail if c == "MC1" else mc2_fail) - t).total_seconds() / 86400
-                            for c, t in zip(s["case"], s["time"])]
+s["days before"] = [((mc1_fail if c == "Merger leak" else mc2_fail) - t).total_seconds() / 86400
+                    for c, t in zip(s["case"], s["time"])]
 s["kind"] = s["sign"].str.startswith("FAILURE").map({True: "failure", False: "warning sign"})
 s["label"] = s["case"] + " · " + s["sign"]
-s = s.sort_values(["case", "days before failure"], ascending=[True, False])
-fig = px.scatter(s, x="days before failure", y="label", color="kind", facet_row="case",
+s["when"] = pd.to_datetime(s["time"]).dt.strftime("%b %d, %I:%M %p")
+s = s.sort_values(["case", "days before"], ascending=[True, False])
+fig = px.scatter(s, x="days before", y="label", color="kind", facet_row="case",
                  color_discrete_map={"failure": ACCENT, "warning sign": TEAL},
-                 hover_data={"time": "|%b %d %I:%M %p", "label": False, "case": False},
-                 labels={"label": ""}, category_orders={"label": s["label"].tolist()})
-fig.update_traces(marker_size=13)
+                 hover_data={"when": True, "label": False, "case": False},
+                 labels={"label": "", "days before": "days before the failure", "kind": "", "when": "time"},
+                 category_orders={"label": s["label"].tolist()})
+fig.update_traces(marker_size=14, hovertemplate="<b>%{y}</b><br>%{customdata[0]} · %{x:.1f} days before<extra></extra>")
 fig.update_xaxes(autorange="reversed")
 fig.update_yaxes(matches=None, showticklabels=True)
-fig.for_each_annotation(lambda a: a.update(text=""))  # the case is already in each label
-st.plotly_chart(style(fig, 520))
-st.caption("Both failures had signs more than a week ahead. In MC2 the exact same thing had already happened twice.")
+fig.for_each_annotation(lambda a: a.update(text=""))
+st.plotly_chart(style(fig, 520), key="signs")
+ui.notice("both failures gave signs more than a week ahead, and in the 4:21 AM case the exact same thing had "
+          "already happened twice.")
 
-# ---------------------------------------------------------------- safeguards
-st.markdown("##### Safeguards we recommend")
-c1, c2, c3 = st.columns(3)
-with c1:
-    with st.container(border=True):
-        st.markdown("**1 · A hard gate on publishing**")
-        st.write("Agents could post publicly with no human sign-off, in both cases. Require a human approval for any "
-                 "post from an agent, and block posting entirely during an embargo window.")
-        st.caption(f"Evidence: {len(leaks)} pre-embargo posts in MC1; {len(summary)} file posts in MC2, each 2 s after a hand-off.")
-with c2:
-    with st.container(border=True):
-        st.markdown("**2 · Stop instructions travelling between agents**")
-        st.write("An agent should not run a 'read this file and pass it on' task from another agent's queue. Cap or "
-                 "review agent-to-agent hand-offs, and flag a file being handed around repeatedly.")
-        st.caption(f"Evidence (what-if): blocking just {' or '.join(best['block'].head(2))} would have stopped "
-                   f"{int(best['posts stopped'].iloc[0])} of {len(summary)} posts.")
-with c3:
-    with st.container(border=True):
-        st.markdown("**3 · Monitoring that acts on warning signs**")
-        st.write("The Judge went quiet for the decisive hours; the virus loop and two earlier incidents raised no "
-                 "response. Alert on silence from oversight, on activity far above an agent's baseline, and on any repeat incident.")
-        st.caption("Evidence: see Baselines & warning signs, and the chart above.")
+ui.section("What we recommend")
+ui.cards([
+    (ui.ICONS["gate"], "1 · A gate on publishing",
+     f"Agents posted publicly with no human sign-off in both failures. Require approval for any agent post, and "
+     f"block posting during an embargo. <br><br><i>Evidence: {len(leaks)} early merger posts; {len(summary)} file posts, "
+     "each 2 seconds after a hand-off.</i>"),
+    (ui.ICONS["cut"], "2 · Limit agent-to-agent tasks",
+     "Don't let an agent run a ‘read this and pass it on’ task from another agent's queue. Cap hand-offs, and flag a "
+     f"file being passed around. <br><br><i>Evidence: blocking just {name_of('evelyn_dock')} and "
+     f"{name_of('gabriel_sonar')} stops all {len(summary)} posts in the replay.</i>"),
+    (ui.ICONS["radar"], "3 · Act on warning signs",
+     "Alert when the compliance monitor goes quiet, when an agent's activity jumps far above its normal, and on any "
+     "repeat incident. <br><br><i>Evidence: the Judge's silence, the virus loop, and two earlier incidents raised no response.</i>"),
+])
+st.page_link("views/what_if.py", label="Try your own safeguard in the what-if simulator →")
 
-st.page_link("views/what_if.py", label="Try your own interventions in the what-if simulator →")
-
-# ---------------------------------------------------------------- bonus: a possible link between the datasets
 st.divider()
-st.markdown("##### Bonus: a possible link between the two datasets")
+ui.section("Bonus: are the two datasets connected?")
 link = ev[ev["details_text"].str.contains("CivicLoom|HarborCrest", case=False)].copy()
 link["kind"] = link["action"].isin(["post_saidit", "post_flex"]).map({True: "public post (SaidIt / FleX)",
                                                                        False: "internal (tasks, meetings, contacts)"})
 names = link["details_text"].str.extract(r"(HarborCrest ResidentEdge|CivicLoom Realty Partners)", expand=False).value_counts()
-st.write(f"The MC1 merger names also appear in the MC2 log: **{len(link)} events** mention them "
-         f"({', '.join(f'“{n}” {c}×' for n, c in names.items())}), including "
-         f"**{(link['kind'].str.startswith('public')).sum()} public SaidIt/FleX posts**, starting on "
-         f"{link['time'].min():%B %d}, nearly a month before the MC1 embargo day.")
+ui.takeaway(f"The merger's names from Failure 1 also appear in the Failure 2 office log: <b>{len(link)} times</b> "
+            f"({', '.join(f'“{n}” {c}×' for n, c in names.items())}), including "
+            f"<b>{(link['kind'].str.startswith('public')).sum()} public posts</b>, from {link['time'].min():%B %d}, "
+            "nearly a month before the embargo day.")
 weekly = link.groupby([pd.Grouper(key="time", freq="W"), "kind"]).size().reset_index(name="events")
 fig = px.bar(weekly, x="time", y="events", color="kind",
              color_discrete_map={"public post (SaidIt / FleX)": ACCENT, "internal (tasks, meetings, contacts)": GREY},
-             labels={"time": "week"})
-st.plotly_chart(style(fig, 300))
-st.caption("Caution: in MC2 these read like an ordinary client or product name (e.g. “SLA Tracking Dashboard for CivicLoom "
-           "Realty Partners”), and the VAST challenge warns that its datasets should not be assumed to be continuous. "
-           "We treat this as a curiosity worth mentioning, not as evidence that the two failures are connected.")
+             labels={"time": "week", "kind": ""})
+st.plotly_chart(style(fig, 300), key="link")
+st.caption("A caution: in the office log these read like an ordinary client or product name (e.g. “SLA Tracking "
+           "Dashboard for CivicLoom Realty Partners”), and the VAST challenge warns that its datasets should not be "
+           "assumed to be connected. We mention it as a curiosity, not as evidence.")
